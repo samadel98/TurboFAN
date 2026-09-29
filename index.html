@@ -1,0 +1,139 @@
+<title>Inside the Turbofan</title>
+<meta name="description" content="A cut-open airliner jet engine you can run: move the thrust lever, change altitude and speed, and follow the air through the fan, compressors, combustor and turbines.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=B612+Mono:wght@400;700&display=swap">
+<style>/*__CSS__*/</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.183.2/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.183.2/examples/jsm/"
+  }
+}
+</script>
+
+<div id="app">
+  <section id="stage" aria-label="3D model of a turbofan engine">
+    <canvas id="gl" aria-hidden="true"></canvas>
+    <div id="pins" aria-hidden="true"></div>
+
+    <header class="brand">
+      <p class="eyebrow">How an airliner jet engine works</p>
+      <h1><span class="h1-small">Inside the</span> <span class="h1-big">Turbofan</span></h1>
+      <dl class="chips">
+        <div class="chip"><dt>Thrust</dt><dd><span id="ro-thrust">0</span><small>kN</small></dd></div>
+        <div class="chip"><dt>Airflow</dt><dd><span id="ro-air">0</span><small>kg/s</small></dd></div>
+        <div class="chip"><dt>Fuel</dt><dd><span id="ro-fuel">0</span><small>kg/h</small></dd></div>
+        <div class="chip chip-bpr"><dt>Bypass</dt><dd><span id="ro-bpr">11</span><small>: 1</small></dd></div>
+      </dl>
+    </header>
+
+    <div class="viewbar">
+      <div class="seg" role="group" aria-label="View">
+        <button type="button" id="view-whole" data-view="whole" aria-pressed="false">Whole</button>
+        <button type="button" id="view-cut" data-view="cut" aria-pressed="true">Cutaway</button>
+        <button type="button" id="view-exploded" data-view="exploded" aria-pressed="false">Exploded</button>
+      </div>
+      <div class="seg" role="group" aria-label="Show on the model">
+        <button type="button" id="layer-flow" aria-pressed="true">Airflow</button>
+        <button type="button" id="layer-labels" aria-pressed="true">Labels</button>
+      </div>
+      <button type="button" class="icon-btn" id="help-btn" aria-label="Controls and shortcuts" aria-expanded="false" aria-controls="help">?</button>
+    </div>
+
+    <div class="help" id="help" hidden>
+      <p class="label">Controls</p>
+      <dl class="keys">
+        <div><dt>Drag</dt><dd>Turn the engine</dd></div>
+        <div><dt>Scroll / pinch</dt><dd>Zoom</dd></div>
+        <div><dt>Right-drag</dt><dd>Pan</dd></div>
+        <div><dt><kbd>↑</kbd> <kbd>↓</kbd></dt><dd>Thrust lever</dd></div>
+        <div><dt><kbd>0</kbd>–<kbd>9</kbd></dt><dd>Jump to a chapter</dd></div>
+        <div><dt><kbd>V</kbd></dt><dd>Whole, cutaway, exploded</dd></div>
+        <div><dt><kbd>F</kbd> <kbd>L</kbd></dt><dd>Airflow, labels</dd></div>
+        <div><dt><kbd>M</kbd></dt><dd>Start or shut down the engine</dd></div>
+      </dl>
+      <p class="help-note">Numbers come from a simplified cycle model of a LEAP-1A-class engine (A320neo family). They follow the right trends but are not manufacturer data.</p>
+    </div>
+
+    <p class="stage-hint" id="stage-hint">Drag to turn · scroll to zoom</p>
+    <div class="stage-fallback" id="stage-fallback" hidden>
+      <p><strong>The 3D engine could not start here.</strong> It needs WebGL 2 and a connection to cdn.jsdelivr.net. The chapters, instruments and charts still work.</p>
+    </div>
+  </section>
+
+  <aside class="ecam" id="ecam" aria-label="Engine instruments">
+    <div class="ecam-head">
+      <span class="ecam-eng">ENG</span>
+      <span class="ecam-limit"><span id="ecam-mode">CL</span> <span id="ecam-limit">0.0</span><small>%</small></span>
+    </div>
+    <div class="ecam-dials">
+      <div class="dial" id="dial-n1">
+        <svg viewBox="0 0 120 92" aria-hidden="true"></svg>
+        <p class="dial-name">N1 <small>%</small></p>
+      </div>
+      <div class="dial" id="dial-egt">
+        <svg viewBox="0 0 120 92" aria-hidden="true"></svg>
+        <p class="dial-name">EGT <small>°C</small></p>
+      </div>
+    </div>
+    <dl class="ecam-rows">
+      <div><dt>N2</dt><dd id="ecam-n2">0.0</dd><small>%</small></div>
+      <div><dt>FF</dt><dd id="ecam-ff">0</dd><small>kg/h</small></div>
+    </dl>
+    <p class="ecam-msg" id="ecam-msg" aria-live="polite"></p>
+  </aside>
+
+  <section id="guide" aria-label="Guided tour">
+    <div class="tabs" id="tabs" role="tablist" aria-label="Chapters"></div>
+    <div class="chapter" id="chapter" role="tabpanel" tabindex="0"></div>
+  </section>
+
+  <aside id="pedestal" aria-label="Cockpit controls">
+    <div class="ped-lever">
+      <p class="label" id="lever-label">Thrust lever</p>
+      <div class="quadrant">
+        <div class="lever" id="lever" role="slider" tabindex="0" aria-labelledby="lever-label" aria-orientation="vertical" aria-valuemin="-50" aria-valuemax="100" aria-valuenow="60" aria-valuetext="CL, climb">
+          <div class="lever-slot"></div>
+          <div class="lever-handle" id="lever-handle"><span></span></div>
+        </div>
+        <ol class="detents" id="detents"></ol>
+      </div>
+    </div>
+    <div class="ped-side">
+      <div class="ped-flight">
+        <p class="label">Flight</p>
+        <div class="seg seg-wrap" role="group" aria-label="Flight phase" id="presets">
+          <button type="button" data-preset="ground" aria-pressed="true">Ground</button>
+          <button type="button" data-preset="takeoff" aria-pressed="false">Take-off</button>
+          <button type="button" data-preset="climb" aria-pressed="false">Climb</button>
+          <button type="button" data-preset="cruise" aria-pressed="false">Cruise</button>
+        </div>
+        <div class="range">
+          <label for="alt">Altitude</label>
+          <output id="alt-out" for="alt">0 ft</output>
+          <input type="range" id="alt" min="0" max="41000" step="500" value="0">
+        </div>
+        <div class="range">
+          <label for="mach">Speed</label>
+          <output id="mach-out" for="mach">Mach 0.00</output>
+          <input type="range" id="mach" min="0" max="0.85" step="0.01" value="0">
+        </div>
+        <p class="atmo" id="atmo">15 °C · 1,013 hPa</p>
+      </div>
+      <div class="ped-engine">
+        <button type="button" class="master" id="master" role="switch" aria-checked="true">
+          <span class="master-name">ENG MASTER</span>
+          <span class="master-pos"><span class="off">OFF</span><span class="on">ON</span></span>
+        </button>
+        <button type="button" class="toggle" id="slowmo" aria-pressed="false">Slow motion</button>
+      </div>
+    </div>
+    <p class="model-note">Figures come from a simplified cycle model of a LEAP-1A-class engine (Airbus A320neo family): right trends and magnitudes, not manufacturer data.</p>
+  </aside>
+</div>
+
+<script type="module">
+/*__JS__*/
+</script>
